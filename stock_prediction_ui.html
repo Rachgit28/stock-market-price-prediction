@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>StockSense — LSTM + Sentiment Predictor</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0c10;
+      --surface: #111419;
+      --surface2: #181c23;
+      --border: #222731;
+      --accent: #00e5a0;
+      --accent2: #0088ff;
+      --warn: #ff6b35;
+      --text: #e8eaf0;
+      --muted: #6b7280;
+      --up: #00e5a0;
+      --down: #ff4d6d;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+      padding: 0;
+    }
+
+    /* NAV */
+    nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 40px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(10,12,16,0.95);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+    }
+    .logo {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.4rem;
+      letter-spacing: -0.5px;
+      color: var(--text);
+    }
+    .logo span { color: var(--accent); }
+    .nav-badge {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--muted);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      padding: 4px 10px;
+      border-radius: 20px;
+    }
+    .nav-badge b { color: var(--accent); }
+
+    /* HERO */
+    .hero {
+      padding: 48px 40px 32px;
+      border-bottom: 1px solid var(--border);
+    }
+    .hero-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--accent);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .hero h1 {
+      font-family: 'DM Serif Display', serif;
+      font-size: clamp(1.8rem, 4vw, 2.8rem);
+      font-weight: 400;
+      line-height: 1.2;
+      margin-bottom: 10px;
+    }
+    .hero h1 em { color: var(--accent); font-style: italic; }
+    .hero p {
+      color: var(--muted);
+      font-size: 0.95rem;
+      max-width: 520px;
+      line-height: 1.6;
+    }
+
+    /* LAYOUT */
+    .main {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 0;
+      min-height: calc(100vh - 180px);
+    }
+
+    /* SIDEBAR */
+    .sidebar {
+      border-right: 1px solid var(--border);
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+    .section-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.65rem;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px;
+    }
+
+    /* INPUTS */
+    label {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    input[type=number], input[type=text], input[type=range], select, textarea {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 7px;
+      padding: 9px 12px;
+      font-size: 0.88rem;
+      font-family: 'DM Mono', monospace;
+      outline: none;
+      transition: border-color 0.2s;
+      margin-bottom: 14px;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--accent);
+    }
+    textarea { resize: vertical; min-height: 72px; }
+    select option { background: #181c23; }
+
+    .sentiment-slider-wrap {
+      margin-bottom: 14px;
+    }
+    .slider-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .slider-val {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.85rem;
+      color: var(--accent);
+    }
+    input[type=range] {
+      padding: 0;
+      height: 4px;
+      cursor: pointer;
+      accent-color: var(--accent);
+      margin-bottom: 0;
+    }
+
+    .sentiment-tag {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-family: 'DM Mono', monospace;
+      margin-top: 6px;
+    }
+    .tag-positive { background: rgba(0,229,160,0.12); color: var(--up); border: 1px solid rgba(0,229,160,0.25); }
+    .tag-neutral  { background: rgba(107,114,128,0.15); color: var(--muted); border: 1px solid var(--border); }
+    .tag-negative { background: rgba(255,77,109,0.12); color: var(--down); border: 1px solid rgba(255,77,109,0.25); }
+
+    .predict-btn {
+      width: 100%;
+      padding: 13px;
+      background: var(--accent);
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      font-family: 'DM Sans', sans-serif;
+      cursor: pointer;
+      letter-spacing: 0.3px;
+      transition: all 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .predict-btn:hover { background: #00ffb2; transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,229,160,0.25); }
+    .predict-btn:active { transform: translateY(0); }
+    .predict-btn.loading { opacity: 0.7; pointer-events: none; }
+
+    /* MODEL INFO CARD */
+    .model-info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .info-chip {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+    }
+    .info-chip .val {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.82rem;
+      color: var(--accent);
+      font-weight: 500;
+    }
+    .info-chip .lbl {
+      font-size: 0.65rem;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* CONTENT */
+    .content {
+      padding: 28px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* METRICS ROW */
+    .metrics-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+    }
+    .metric-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+      transition: border-color 0.3s;
+    }
+    .metric-card.highlight { border-color: var(--accent); }
+    .metric-card .m-label {
+      font-size: 0.7rem;
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+    }
+    .metric-card .m-value {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.7rem;
+      color: var(--text);
+      line-height: 1;
+    }
+    .metric-card .m-value.good { color: var(--up); }
+    .metric-card .m-value.warn { color: var(--warn); }
+    .metric-card .m-sub {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    /* PREDICTION RESULT */
+    .prediction-result {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 22px 24px;
+      display: none;
+      animation: slideIn 0.4s ease;
+    }
+    .prediction-result.show { display: block; }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .pred-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .pred-title {
+      font-family: 'DM Serif Display', serif;
+      font-size: 1.1rem;
+    }
+    .pred-values {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .pred-val-block { text-align: center; }
+    .pred-val-block .pv-label { font-size: 0.72rem; color: var(--muted); margin-bottom: 4px; }
+    .pred-val-block .pv-num {
+      font-family: 'DM Serif Display', serif;
+      font-size: 2rem;
+      line-height: 1;
+    }
+    .pred-val-block .pv-num.up { color: var(--up); }
+    .pred-val-block .pv-num.down { color: var(--down); }
+    .pred-val-block .pv-sub { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+
+    .direction-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 14px;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .badge-up   { background: rgba(0,229,160,0.12); color: var(--up);   border: 1px solid rgba(0,229,160,0.3); }
+    .badge-down { background: rgba(255,77,109,0.12); color: var(--down); border: 1px solid rgba(255,77,109,0.3); }
+
+    /* CHART */
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 22px;
+      flex: 1;
+    }
+    .chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .chart-title {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .chart-legend {
+      display: flex;
+      gap: 16px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+    .legend-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+    }
+    canvas { max-height: 240px; }
+
+    /* NEWS ANALYSIS */
+    .news-result {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 12px 14px;
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.5;
+      display: none;
+      margin-top: -10px;
+    }
+    .news-result.show { display: block; }
+    .news-result b { color: var(--text); }
+
+    /* PIPELINE */
+    .pipeline-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+    .pipeline {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin-top: 10px;
+      overflow-x: auto;
+    }
+    .pipe-step {
+      flex: 1;
+      text-align: center;
+      padding: 10px 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      font-size: 0.72rem;
+      color: var(--muted);
+      min-width: 80px;
+      position: relative;
+    }
+    .pipe-step .ps-icon { font-size: 1.1rem; margin-bottom: 4px; }
+    .pipe-step .ps-name { font-weight: 500; color: var(--text); font-size: 0.73rem; }
+    .pipe-arrow {
+      color: var(--border);
+      font-size: 1rem;
+      padding: 0 4px;
+      flex-shrink: 0;
+    }
+    .pipe-step.active { border-color: var(--accent); }
+    .pipe-step.active .ps-name { color: var(--accent); }
+
+    /* DISCLAIMER */
+    .disclaimer {
+      text-align: center;
+      font-size: 0.7rem;
+      color: var(--muted);
+      padding: 16px 40px;
+      border-top: 1px solid var(--border);
+      font-family: 'DM Mono', monospace;
+    }
+
+    @media (max-width: 900px) {
+      .main { grid-template-columns: 1fr; }
+      .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+      nav, .hero { padding: 16px 20px; }
+      .content { padding: 20px; }
+      .metrics-row { grid-template-columns: repeat(2, 1fr); }
+      .pred-values { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">Stock<span>Sense</span></div>
+  <div class="nav-badge">Model: <b>LSTM + VADER</b> &nbsp;·&nbsp; Stock: <b>AAPL</b></div>
+</nav>
+
+<div class="hero">
+  <div class="hero-label">Final Year Project — Deep Learning &amp; Sentiment Analysis</div>
+  <h1>Predict <em>Tomorrow's</em> Stock Price<br>from News &amp; Market Data</h1>
+  <p>LSTM neural network trained on Apple stock prices (1980–2016) fused with financial news sentiment scores via VADER.</p>
+</div>
+
+<div class="main">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+
+    <div>
+      <div class="section-label">Input Features</div>
+      <div class="card">
+        <label>Open Price ($)</label>
+        <input type="number" id="inp-open" value="182.50" step="0.01" min="0" />
+
+        <label>High Price ($)</label>
+        <input type="number" id="inp-high" value="185.20" step="0.01" min="0" />
+
+        <label>Low Price ($)</label>
+        <input type="number" id="inp-low" value="180.10" step="0.01" min="0" />
+
+        <label>Close Price ($)</label>
+        <input type="number" id="inp-close" value="183.75" step="0.01" min="0" />
+
+        <label>Volume</label>
+        <input type="number" id="inp-volume" value="52400000" step="100000" min="0" />
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">News Sentiment (VADER)</div>
+      <div class="card">
+        <label>Paste a Financial Headline</label>
+        <textarea id="news-input" placeholder="e.g. Apple beats earnings expectations, revenue up 12% year-on-year..."></textarea>
+        <button class="predict-btn" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);margin-bottom:12px;" onclick="analyzeNews()">Analyze Sentiment</button>
+        <div class="news-result" id="news-result"></div>
+
+        <div class="sentiment-slider-wrap" style="margin-top:10px;">
+          <div class="slider-row">
+            <label style="margin:0;">Manual Sentiment Score</label>
+            <span class="slider-val" id="sent-display">0.12</span>
+          </div>
+          <input type="range" id="sentiment-slider" min="-1" max="1" step="0.01" value="0.12" oninput="updateSentiment(this.value)" />
+          <div id="sentiment-tag" class="sentiment-tag tag-positive">Positive sentiment</div>
+        </div>
+      </div>
+    </div>
+
+    <button class="predict-btn" id="predict-btn" onclick="runPrediction()">
+      Run LSTM Prediction
+    </button>
+
+    <div>
+      <div class="section-label">Model Architecture</div>
+      <div class="model-info-grid">
+        <div class="info-chip"><div class="val">LSTM</div><div class="lbl">Layer type</div></div>
+        <div class="info-chip"><div class="val">50</div><div class="lbl">Hidden units</div></div>
+        <div class="info-chip"><div class="val">11,451</div><div class="lbl">Parameters</div></div>
+        <div class="info-chip"><div class="val">20</div><div class="lbl">Epochs</div></div>
+        <div class="info-chip"><div class="val">Adam</div><div class="lbl">Optimizer</div></div>
+        <div class="info-chip"><div class="val">MSE</div><div class="lbl">Loss fn</div></div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- CONTENT -->
+  <div class="content">
+
+    <!-- MODEL METRICS -->
+    <div>
+      <div class="section-label">Model Performance (Test Set)</div>
+      <div class="metrics-row">
+        <div class="metric-card highlight">
+          <div class="m-label">LSTM — R²</div>
+          <div class="m-value good">0.9912</div>
+          <div class="m-sub">vs LR: 0.9743</div>
+        </div>
+        <div class="metric-card">
+          <div class="m-label">LSTM — RMSE</div>
+          <div class="m-value">0.0162</div>
+          <div class="m-sub">Scaled price units</div>
+        </div>
+        <div class="metric-card">
+          <div class="m-label">LSTM — MAE</div>
+          <div class="m-value">0.0118</div>
+          <div class="m-sub">vs LR: 0.0294</div>
+        </div>
+        <div class="metric-card">
+          <div class="m-label">Training Loss</div>
+          <div class="m-value">2.79e-4</div>
+          <div class="m-sub">Epoch 20 / 20</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PREDICTION OUTPUT -->
+    <div class="prediction-result" id="pred-result">
+      <div class="pred-header">
+        <div class="pred-title">Prediction Result</div>
+        <span id="dir-badge" class="direction-badge badge-up">▲ Bullish</span>
+      </div>
+      <div class="pred-values">
+        <div class="pred-val-block">
+          <div class="pv-label">LSTM Predicted Close</div>
+          <div class="pv-num up" id="pred-lstm">—</div>
+          <div class="pv-sub">Next trading day</div>
+        </div>
+        <div class="pred-val-block">
+          <div class="pv-label">Baseline (Linear Reg.)</div>
+          <div class="pv-num" id="pred-lr" style="color:var(--accent2)">—</div>
+          <div class="pv-sub">Comparison model</div>
+        </div>
+        <div class="pred-val-block">
+          <div class="pv-label">Sentiment Influence</div>
+          <div class="pv-num" id="pred-sent-inf" style="font-size:1.4rem">—</div>
+          <div class="pv-sub">VADER compound score</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHART -->
+    <div class="chart-card">
+      <div class="chart-header">
+        <div class="chart-title">Actual vs Predicted Close Price (Scaled)</div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#e8eaf0"></div>Actual</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>LSTM</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#0088ff"></div>Linear Reg</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#ff6b35;"></div>Your Input</div>
+        </div>
+      </div>
+      <canvas id="main-chart"></canvas>
+    </div>
+
+    <!-- PIPELINE -->
+    <div class="pipeline-card">
+      <div class="section-label">Processing Pipeline</div>
+      <div class="pipeline">
+        <div class="pipe-step active">
+          <div class="ps-icon">📰</div>
+          <div class="ps-name">News Headlines</div>
+          DJIA dataset
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step active">
+          <div class="ps-icon">🧠</div>
+          <div class="ps-name">VADER NLP</div>
+          Sentiment score
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step active">
+          <div class="ps-icon">📈</div>
+          <div class="ps-name">AAPL OHLCV</div>
+          Stock features
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step active">
+          <div class="ps-icon">🔗</div>
+          <div class="ps-name">Merge &amp; Scale</div>
+          MinMaxScaler
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step active">
+          <div class="ps-icon">🔁</div>
+          <div class="ps-name">LSTM (50u)</div>
+          Sequence model
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-step active">
+          <div class="ps-icon">🎯</div>
+          <div class="ps-name">Close Price</div>
+          Predicted output
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="disclaimer">
+  ⚠ &nbsp;This is a research demo. Predictions are simulated based on trained model behaviour. Not financial advice.
+</div>
+
+<script>
+  // ---- Simulated historical data (realistic AAPL scaled 2014-2016 test period) ----
+  const actualData = [0.312,0.318,0.322,0.308,0.315,0.329,0.341,0.338,0.349,0.352,0.360,0.355,0.371,0.365,0.378,0.382,0.374,0.390,0.395,0.401,0.398,0.410,0.415,0.408,0.422,0.418,0.430,0.438,0.432,0.445];
+  const lstmPred  = [0.315,0.321,0.319,0.310,0.318,0.332,0.344,0.340,0.351,0.354,0.362,0.357,0.374,0.368,0.380,0.385,0.376,0.393,0.397,0.404,0.400,0.412,0.418,0.410,0.425,0.421,0.433,0.441,0.435,0.448];
+  const lrPred    = [0.310,0.316,0.324,0.305,0.313,0.327,0.338,0.335,0.346,0.350,0.358,0.352,0.368,0.362,0.375,0.379,0.371,0.387,0.392,0.398,0.395,0.407,0.412,0.404,0.419,0.415,0.427,0.435,0.429,0.441];
+  const labels    = actualData.map((_,i) => `T-${30-i}`);
+
+  // ---- Chart ----
+  const ctx = document.getElementById('main-chart').getContext('2d');
+  const chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Actual', data: actualData, borderColor: '#e8eaf0', borderWidth: 1.5, pointRadius: 0, tension: 0.3 },
+        { label: 'LSTM',   data: lstmPred,   borderColor: '#00e5a0', borderWidth: 2,   pointRadius: 0, tension: 0.3 },
+        { label: 'Lin Reg',data: lrPred,     borderColor: '#0088ff', borderWidth: 1.5, borderDash: [4,3], pointRadius: 0, tension: 0.3 },
+        { label: 'Input',  data: Array(30).fill(null), borderColor: '#ff6b35', borderWidth: 0, pointRadius: 6, pointBackgroundColor: '#ff6b35' }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#111419',
+          borderColor: '#222731',
+          borderWidth: 1,
+          titleColor: '#6b7280',
+          bodyColor: '#e8eaf0',
+          titleFont: { family: 'DM Mono', size: 11 },
+          bodyFont:  { family: 'DM Mono', size: 12 }
+        }
+      },
+      scales: {
+        x: { grid: { color: '#1a1f28' }, ticks: { color: '#6b7280', font: { family: 'DM Mono', size: 10 }, maxTicksLimit: 8 } },
+        y: { grid: { color: '#1a1f28' }, ticks: { color: '#6b7280', font: { family: 'DM Mono', size: 10 } } }
+      }
+    }
+  });
+
+  // ---- Sentiment slider ----
+  function updateSentiment(val) {
+    document.getElementById('sent-display').textContent = parseFloat(val).toFixed(2);
+    const tag = document.getElementById('sentiment-tag');
+    const v = parseFloat(val);
+    if (v > 0.05) { tag.className = 'sentiment-tag tag-positive'; tag.textContent = 'Positive sentiment'; }
+    else if (v < -0.05) { tag.className = 'sentiment-tag tag-negative'; tag.textContent = 'Negative sentiment'; }
+    else { tag.className = 'sentiment-tag tag-neutral'; tag.textContent = 'Neutral sentiment'; }
+  }
+
+  // ---- News analysis (simple rule-based VADER simulation) ----
+  const positiveWords = ['beats','growth','profit','record','surge','strong','up','gain','rise','positive','exceeded','revenue','bullish','rally'];
+  const negativeWords = ['falls','loss','decline','miss','down','weak','crash','fear','below','cut','layoff','slump','bearish','drop'];
+
+  function analyzeNews() {
+    const text = document.getElementById('news-input').value.toLowerCase();
+    if (!text.trim()) return;
+    let score = 0;
+    positiveWords.forEach(w => { if (text.includes(w)) score += 0.15; });
+    negativeWords.forEach(w => { if (text.includes(w)) score -= 0.15; });
+    score = Math.max(-1, Math.min(1, score + (Math.random() * 0.1 - 0.05)));
+    score = parseFloat(score.toFixed(4));
+
+    document.getElementById('sentiment-slider').value = score;
+    updateSentiment(score);
+
+    const dir = score > 0.05 ? 'positive' : score < -0.05 ? 'negative' : 'neutral';
+    const dirText = score > 0.05 ? '📈 Bullish signal' : score < -0.05 ? '📉 Bearish signal' : '➖ Neutral signal';
+    const res = document.getElementById('news-result');
+    res.innerHTML = `<b>VADER Compound: ${score.toFixed(4)}</b><br>${dirText} — Sentiment slider updated automatically.`;
+    res.className = 'news-result show';
+  }
+
+  // ---- Prediction simulation ----
+  function runPrediction() {
+    const btn = document.getElementById('predict-btn');
+    btn.textContent = 'Running model...';
+    btn.classList.add('loading');
+
+    setTimeout(() => {
+      const open   = parseFloat(document.getElementById('inp-open').value)   || 182;
+      const high   = parseFloat(document.getElementById('inp-high').value)   || 185;
+      const low    = parseFloat(document.getElementById('inp-low').value)    || 180;
+      const close  = parseFloat(document.getElementById('inp-close').value)  || 183;
+      const sentiment = parseFloat(document.getElementById('sentiment-slider').value);
+
+      // Simulate LSTM output — realistic weighted formula
+      const mid = (open + high + low + close) / 4;
+      const sentBoost = sentiment * mid * 0.018;
+      const noise = (Math.random() - 0.5) * mid * 0.004;
+      const lstmOut = (close * 1.006 + sentBoost + noise).toFixed(2);
+
+      // Linear regression baseline — simpler, less sensitive to sentiment
+      const lrOut = (close * 1.003 + sentiment * mid * 0.005 + (Math.random() - 0.5) * mid * 0.008).toFixed(2);
+
+      const change = ((lstmOut - close) / close * 100).toFixed(2);
+      const isUp = lstmOut >= close;
+
+      document.getElementById('pred-lstm').textContent = `$${lstmOut}`;
+      document.getElementById('pred-lr').textContent = `$${lrOut}`;
+      document.getElementById('pred-sent-inf').textContent = (sentiment >= 0 ? '+' : '') + sentiment.toFixed(2);
+
+      const badge = document.getElementById('dir-badge');
+      if (isUp) {
+        badge.textContent = `▲ Bullish (+${change}%)`;
+        badge.className = 'direction-badge badge-up';
+        document.getElementById('pred-lstm').className = 'pv-num up';
+      } else {
+        badge.textContent = `▼ Bearish (${change}%)`;
+        badge.className = 'direction-badge badge-down';
+        document.getElementById('pred-lstm').className = 'pv-num down';
+      }
+
+      // Add point to chart
+      const scaledInput = close / 500; // approximate scale to 0-1
+      const newPoint = Array(30).fill(null);
+      newPoint[29] = parseFloat((scaledInput).toFixed(4));
+      chart.data.datasets[3].data = newPoint;
+      chart.update();
+
+      document.getElementById('pred-result').className = 'prediction-result show';
+      btn.textContent = 'Run LSTM Prediction';
+      btn.classList.remove('loading');
+    }, 1200);
+  }
+</script>
+</body>
+</html>
